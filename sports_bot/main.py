@@ -4,16 +4,22 @@ import logging
 import httpx
 from .team_sports_mapping import team_sports_mapping
 from .config import Config
+from openai import OpenAI
 
 app = FastAPI()
 
 logging.basicConfig(level=logging.INFO)
 
+# Configuration for API keys
 API_KEY = Config.ODDS_API_KEY
+OPENAI_API_KEY = Config.OPENAI_API_KEY
 BASE_URL = "https://api.the-odds-api.com/v4"
 DEFAULT_REGION = "us"
 DEFAULT_MARKETS = "h2h"
 ODDS_FORMAT = "american"
+
+# OpenAI client configuration
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def fetch_odds(sport: str):
     url = (
@@ -22,12 +28,18 @@ def fetch_odds(sport: str):
     )
     logging.info(f"Fetching odds from URL: {url}")
     try:
-        response = httpx.get(url)
+        response = httpx.get(url, timeout=30)  # Increased timeout
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as exc:
         logging.error(f"Error fetching odds: {exc}")
         raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
+    except httpx.ConnectTimeout as exc:
+        logging.error(f"Connection timed out: {exc}")
+        raise HTTPException(status_code=504, detail="The server took too long to respond.")
+    except httpx.RequestError as exc:
+        logging.error(f"Error connecting to the API: {exc}")
+        raise HTTPException(status_code=502, detail="Error connecting to the API.")
 
 class UserQuery(BaseModel):
     user_query: str
@@ -39,27 +51,52 @@ def get_sport_from_team(team: str):
             return sport
     return None
 
+def fetch_ai_analysis(team: str, home_team: str, away_team: str, start_time: str, odds_data: dict):
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a sports analyst providing concise, insightful betting predictions for upcoming games. Avoid lengthy explanations of methods and focus on team performance, statistical comparisons, and actionable betting recommendations."
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Provide a concise summary of the upcoming matchup between {home_team} and {away_team}. "
+                    f"Include recent performance metrics (win-loss record, key stats, streaks), statistical comparisons (offense, defense, scoring), "
+                    f"and historical head-to-head trends if relevant. Highlight current odds from this data: {odds_data}. "
+                    f"Identify value opportunities based on the analysis. Conclude with a clear prediction of which team is more likely to win or cover the spread. "
+                    f"The game is scheduled on {start_time}."
+                ),
+            }
+        ]
+        # Create a chat completion request
+        chat_completion = client.chat.completions.create(
+            messages=messages,
+            model="gpt-4o"  # Use the appropriate model name configured for your account
+        )
+        # Extract the response text from the completion object
+        ai_response = chat_completion.choices[0].message.content.strip()
+        logging.info("AI analysis successfully generated.")
+        return ai_response
+    except Exception as e:
+        logging.error(f"Error fetching AI predictions: {e}")
+        return "Unable to fetch AI predictions at the moment."
+
 def process_query(user_query: str):
     user_query_lower = user_query.lower()
 
     # Check if the query is about odds or game
-    if "odds" in user_query_lower:
+    if "odds" in user_query_lower or "game" in user_query_lower:
         for team in team_sports_mapping.keys():
             if team.lower() in user_query_lower:
                 sport = get_sport_from_team(team)
                 if sport:
                     odds_data = fetch_odds(sport)
-                    return format_odds_response(team, odds_data)
-        return "Sorry, I couldn't find odds for the requested team."
-
-    elif "game" in user_query_lower:
-        for team in team_sports_mapping.keys():
-            if team.lower() in user_query_lower:
-                sport = get_sport_from_team(team)
-                if sport:
-                    odds_data = fetch_odds(sport)
-                    return format_game_response(team, odds_data)
-        return "Sorry, I couldn't find the next game for the requested team."
+                    if "odds" in user_query_lower:
+                        return format_odds_response(team, odds_data)
+                    if "game" in user_query_lower:
+                        return format_game_response(team, odds_data)
+        return "Sorry, I couldn't find the requested information for the team."
 
     return "Sorry, I couldn't understand your query. Please specify if you want odds or game details."
 
@@ -95,7 +132,8 @@ def format_game_response(team: str, odds_data):
         start_time = event["commence_time"]
 
         if team.lower() in [home_team.lower(), away_team.lower()]:
-            return f"The next game for {team} is {home_team} vs {away_team} on {start_time}."
+            ai_analysis = fetch_ai_analysis(team, home_team, away_team, start_time, odds_data)
+            return f"The next game for {team} is {home_team} vs {away_team} on {start_time}.\n\nAI Analysis:\n{ai_analysis}"
 
     return f"No upcoming games found for the team '{team}'."
 
