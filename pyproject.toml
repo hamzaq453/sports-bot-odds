@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "sports-bot"
+version = "0.1.0"
+description = ""
+authors = ["Hamza Qureshi <bc220407660mhq@vu.edu.pk>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.13"
+fastapi = "^0.115.6"
+uvicorn = "^0.34.0"
+python-dotenv = "^1.0.1"
+openai = "^1.58.1"
+requests = "^2.32.3"
+httpx = "^0.28.1"
+fuzzywuzzy = {extras = ["speedup"], version = "^0.18.0"}
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
