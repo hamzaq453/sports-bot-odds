@@ -56,31 +56,30 @@ def fetch_ai_analysis(team: str, home_team: str, away_team: str, start_time: str
         messages = [
             {
                 "role": "system",
-                "content": "You are a sports analyst providing concise, insightful betting predictions for upcoming games. Avoid lengthy explanations of methods and focus on team performance, statistical comparisons, and actionable betting recommendations."
+                "content": "You are a sports analyst providing concise, insightful betting predictions for upcoming games. Focus solely on team performance, statistical comparisons, actionable betting recommendations, and the current odds provided. Avoid lengthy explanations or background details."
             },
             {
                 "role": "user",
                 "content": (
-                    f"Provide a concise summary of the upcoming matchup between {home_team} and {away_team}. "
-                    f"Include recent performance metrics (win-loss record, key stats, streaks), statistical comparisons (offense, defense, scoring), "
-                    f"and historical head-to-head trends if relevant. Highlight current odds from this data: {odds_data}. "
-                    f"Identify value opportunities based on the analysis. Conclude with a clear prediction of which team is more likely to win or cover the spread. "
-                    f"The game is scheduled on {start_time}."
+                    f"Analyze the upcoming matchup between {home_team} and {away_team}. "
+                    f"Use the following data for your analysis: Odds Data: {odds_data}. "
+                    f"The game is scheduled on {start_time}. Conclude with a single line stating the predicted winning team under the heading 'AI Recommendation:' with no additional details."
                 ),
             }
         ]
-        # Create a chat completion request
+        # Generate response from OpenAI
         chat_completion = client.chat.completions.create(
             messages=messages,
-            model="gpt-4o"  # Use the appropriate model name configured for your account
+            model="gpt-4o"  # Ensure correct model name
         )
-        # Extract the response text from the completion object
+        # Extract AI response
         ai_response = chat_completion.choices[0].message.content.strip()
         logging.info("AI analysis successfully generated.")
         return ai_response
     except Exception as e:
         logging.error(f"Error fetching AI predictions: {e}")
         return "Unable to fetch AI predictions at the moment."
+
 
 def process_query(user_query: str):
     user_query_lower = user_query.lower()
@@ -132,10 +131,14 @@ def format_game_response(team: str, odds_data):
         start_time = event["commence_time"]
 
         if team.lower() in [home_team.lower(), away_team.lower()]:
-            ai_analysis = fetch_ai_analysis(team, home_team, away_team, start_time, odds_data)
-            return f"The next game for {team} is {home_team} vs {away_team} on {start_time}.\n\nAI Analysis:\n{ai_analysis}"
+            ai_analysis = fetch_ai_analysis(team, home_team, away_team, start_time, event)
+            return (
+                f"The next game for {team} is {home_team} vs {away_team} on {start_time}.\n\n"
+                f"{ai_analysis}"
+            )
 
     return f"No upcoming games found for the team '{team}'."
+
 
 @app.post("/query")
 async def handle_query(query: UserQuery):
